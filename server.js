@@ -19,8 +19,17 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretkey123';
 
-app.use(cors());
+app.use(cors({
+  origin: '*', // For testing, you might want to restrict this later to your Vercel URL
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.json());
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', message: 'Simena Backend is running' });
+});
 
 // Middleware to verify JWT
 const authenticateToken = (req, res, next) => {
