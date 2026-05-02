@@ -142,221 +142,262 @@ app.get('/api/prompts/content/:id', authenticateToken, checkPaymentStatus, async
 
 // Prompt Reviewer
 app.post('/api/prompts/review', authenticateToken, async (req, res) => {
-  const { promptText } = req.body;
+  const { promptText, manualIntent } = req.body;
   if (!promptText || promptText.trim() === '') {
     return res.status(400).json({ error: 'El prompt no puede estar vacío.' });
   }
 
-  // --- ANÁLISIS DE INTENCIÓN Y VARIABLES FALTANTES ---
   const lowerPrompt = promptText.toLowerCase();
   let adviceList = [];
   let intent = 'general';
-  
-  if (lowerPrompt.match(/(carta|comunicado|mensaje|circular|correo|citación|nota)/)) {
-    intent = 'comunicacion';
-  } else if (lowerPrompt.match(/(plan|clase|planeación|sesión|secuencia|unidad)/)) {
-    intent = 'planeacion';
-  } else if (lowerPrompt.match(/(examen|quiz|prueba|evaluación|icfes|saber|test)/)) {
-    intent = 'examen';
-  } else if (lowerPrompt.match(/(rúbrica|criterios|calificar|matriz)/)) {
-    intent = 'rubrica';
-  } else if (lowerPrompt.match(/(inclusión|nee|discapacidad|autismo|tdah|dislexia|piar|dua)/)) {
-    intent = 'inclusion';
-  } else if (lowerPrompt.match(/(convivencia|disciplina|bullying|acoso|conflicto|comportamiento)/)) {
-    intent = 'convivencia';
-  } else if (lowerPrompt.match(/(reunión|acta|comité|asamblea|padres)/)) {
-    intent = 'reunion';
-  } else if (lowerPrompt.match(/(proyecto|abp|actividad|dinámica|juego|feria)/)) {
-    intent = 'proyecto';
-  } else if (lowerPrompt.match(/(explica|resumen|teoría|concepto)/)) {
-    intent = 'explicacion';
-  }
 
-  // --- CONSTRUCCIÓN DEL MEJOR PROMPT Y CONSEJOS ---
+  // --- Detección de intención ---
+  if (lowerPrompt.match(/(carta|comunicado|mensaje|circular|correo|citación|nota)/)) intent = 'comunicacion';
+  else if (lowerPrompt.match(/(plan|clase|planeación|sesión|secuencia|unidad)/)) intent = 'planeacion';
+  else if (lowerPrompt.match(/(examen|quiz|prueba|evaluación|icfes|saber|test)/)) intent = 'examen';
+  else if (lowerPrompt.match(/(rúbrica|criterios|calificar|matriz)/)) intent = 'rubrica';
+  else if (lowerPrompt.match(/(inclusión|nee|discapacidad|autismo|tdah|dislexia|piar|dua)/)) intent = 'inclusion';
+  else if (lowerPrompt.match(/(convivencia|disciplina|bullying|acoso|conflicto|comportamiento)/)) intent = 'convivencia';
+  else if (lowerPrompt.match(/(reunión|acta|comité|asamblea|padres)/)) intent = 'reunion';
+  else if (lowerPrompt.match(/(proyecto|abp)/)) intent = 'proyecto';
+  else if (lowerPrompt.match(/(explica|resumen|teoría|concepto)/)) intent = 'explicacion';
+  else if (lowerPrompt.match(/(taller|guía|guia|hoja de trabajo|ficha|ejercicio|práctica|practica|actividad)/)) intent = 'tarea_o_guia';
+
+  // Si el usuario eligió una categoría manualmente, tiene prioridad
+  if (manualIntent && manualIntent !== 'auto') intent = manualIntent;
+
+  // --- Extracción de contexto del texto del usuario ---
+  const gradeMatch = lowerPrompt.match(/(preescolar|kinder|primero|segundo|tercero|cuarto|quinto|sexto|séptimo|septimo|octavo|noveno|décimo|decimo|undécimo|undecimo|\d+\s*°?\s*(grado|°))/i);
+  const extractedGrade = gradeMatch ? gradeMatch[0].trim() : '[Escribe el grado, ej. Quinto de Primaria]';
+
+  const subjectMatch = lowerPrompt.match(/(matemáticas|matematicas|ciencias|español|espanol|lenguaje|sociales|inglés|ingles|física|fisica|química|quimica|biología|biologia|historia|arte|educación física|tecnología)/i);
+  const extractedSubject = subjectMatch ? subjectMatch[0].trim() : '[Escribe la materia, ej. Matemáticas]';
+
+  const userTopic = promptText.trim();
   let improvedPrompt = '';
-  
-  switch(intent) {
+
+  switch (intent) {
     case 'comunicacion':
-      adviceList.push('Especifica el **Público Objetivo** (Padres de familia, Docentes, Estudiantes, Rectoría).');
-      adviceList.push('Indica el **Propósito Formal** (Citación disciplinaria, Circular informativa, Felicitación, Reporte académico).');
-      adviceList.push('Define el **Tono Comunicativo** (Asertivo, Empático, Estrictamente institucional, Motivador).');
-      improvedPrompt = `Actúa como un [Cargo: ej. Coordinador de Convivencia / Docente Titular] experto en Comunicación Asertiva Escolar. Redacta una [carta/circular/comunicado] oficial.
+      adviceList.push('👥 ¿A quién va dirigido? Dile a la IA si es para los papás, los estudiantes o la rectoría.');
+      adviceList.push('📋 ¿Cuál es el motivo? Sé específico: ¿una citación, una circular informativa, una felicitación?');
+      adviceList.push('🗣️ ¿Qué tono quieres? Por ejemplo: amable y cercano, o formal e institucional.');
+      improvedPrompt = `Actúa como un [Cargo: ej. Coordinador / Docente Titular] experto en Comunicación Asertiva Escolar. Redacta una [carta/circular/comunicado] oficial sobre: "${userTopic}".
 
 Variables del Contexto:
-- Destinatarios: [Público Objetivo].
-- Institución: [Nombre de tu Colegio/Instituto].
-- Asunto/Motivo: [Describe el motivo central, ej. citación por bajo rendimiento o invitación a feria de ciencias].
-- Tono Requerido: [Tono, ej. Firme pero empático, apegado al manual de convivencia].
+- Destinatarios: [Padres de familia / Estudiantes / Rectoría].
+- Institución: [Nombre de tu Colegio].
+- Tono Requerido: [Ej. Formal e institucional / Amable y motivador].
 
-Instrucciones Pedagógicas:
-1. Usa una estructura de 3 partes: Saludo cordial e institucional, Exposición clara del motivo (sin rodeos ni juicios de valor), y Llamado a la acción (Call to Action).
-2. Si es una situación disciplinaria o académica negativa, usa un enfoque de "Disciplina Positiva", enfocándote en la colaboración Familia-Escuela.
-3. Deja espacios con corchetes [ ] para que el maestro llene datos como fechas, horas y nombres de estudiantes.`;
+Instrucciones:
+1. Estructura de 3 partes: Saludo cordial, Exposición clara del motivo, Llamado a la acción.
+2. Si es una situación difícil, enfócate en la colaboración Familia-Escuela.
+3. Deja espacios con corchetes [ ] para fechas, horas y nombres específicos.`;
       break;
 
     case 'planeacion':
-      adviceList.push('Menciona el **Modelo Pedagógico** (Constructivismo, Escuela Nueva, Tradicional).');
-      adviceList.push('Alinea tu clase con los **DBA (Derechos Básicos de Aprendizaje)** o estándares de competencia de tu país.');
-      adviceList.push('Establece los **Momentos de la Clase** (Exploración, Estructuración, Práctica, Transferencia).');
-      improvedPrompt = `Actúa como un Asesor Curricular y Experto en Planeación Educativa. Diseña una Secuencia Didáctica completa basada en enfoques constructivistas.
+      adviceList.push(`📚 Grado detectado: "${extractedGrade}". Si no es correcto, corrígelo en el prompt.`);
+      adviceList.push(`📖 Materia detectada: "${extractedSubject}". Confirma o corrige en el prompt.`);
+      adviceList.push('🎯 ¿Qué quieres que aprendan? Escribe el objetivo: qué sabrá o podrá hacer el estudiante al final.');
+      improvedPrompt = `Actúa como un Asesor Curricular. Diseña una Secuencia Didáctica completa.
 
 Variables del Contexto:
-- Grado/Edad: [Grado escolar, ej. 5to de Primaria].
-- Área/Materia: [Asignatura].
-- Tema Central: "${promptText.trim()}".
-- Duración Total: [ej. 2 horas reloj].
-- Estándar/Competencia (DBA): [Menciona el Derecho Básico de Aprendizaje o competencia a alcanzar].
+- Grado/Edad: ${extractedGrade}.
+- Área/Materia: ${extractedSubject}.
+- Tema Central: "${userTopic}".
+- Duración Total: [ej. 2 horas / 1 sesión de 45 min].
+- Objetivo de Aprendizaje: [Qué sabrá o podrá hacer el estudiante al final].
 
-Estructura Obligatoria de Salida (Usa formato Tabla):
-1. **Fase de Exploración (Saberes Previos)**: Actividad "Rompehielo" cognitiva o pregunta problematizadora.
-2. **Fase de Estructuración (Conceptualización)**: Cómo el docente entregará el contenido (evitando la clase 100% magistral).
-3. **Fase de Práctica (Ejecución)**: Actividad donde el estudiante aplica lo aprendido (guiado).
-4. **Fase de Transferencia (Cierre/Evaluación)**: Cómo evaluamos formativamente que se logró el objetivo y su conexión con la vida real.
-5. **Materiales e Inclusión**: Recursos necesarios y una nota sobre cómo adaptar la clase (DUA) para diferentes ritmos de aprendizaje.`;
+Estructura (usa formato Tabla):
+1. Exploración (Saberes Previos): Actividad o pregunta para activar conocimientos.
+2. Estructuración (Conceptualización): Cómo explicarás el tema sin clase 100% magistral.
+3. Práctica (Ejecución): Actividad donde el estudiante aplica lo aprendido.
+4. Cierre (Evaluación): Pregunta reflexiva de salida para verificar el aprendizaje.
+5. Materiales e Inclusión: Recursos y adaptación para diferentes ritmos de aprendizaje.`;
       break;
 
     case 'examen':
-      adviceList.push('Utiliza la **Taxonomía de Bloom** para asegurar preguntas de diferentes niveles cognitivos (Recordar, Analizar, Crear).');
-      adviceList.push('Indica si quieres formato estandarizado tipo **Pruebas Saber / ICFES** (Preguntas contextualizadas con único enunciado).');
-      adviceList.push('Pide a la IA que genere la "Hoja de Claves" o Rúbrica por separado.');
-      improvedPrompt = `Actúa como un Especialista en Psicometría y Evaluación Educativa (creador de pruebas tipo ICFES/Saber o College Board).
-
-Diseña una prueba escrita sobre: "${promptText.trim()}".
+      adviceList.push(`📝 Grado detectado: "${extractedGrade}". ¿Es correcto? Ajústalo si es necesario.`);
+      adviceList.push('🧠 Pide preguntas de diferentes dificultades: algunas de memoria (fácil) y otras de análisis (difícil).');
+      adviceList.push('📄 Solicita también la hoja de respuestas del docente con la clave de corrección.');
+      improvedPrompt = `Actúa como un Especialista en Evaluación Educativa. Diseña una prueba escrita sobre: "${userTopic}".
 
 Variables de Evaluación:
-- Nivel de los Estudiantes: [Grado o Nivel Cognitivo].
+- Nivel de los Estudiantes: ${extractedGrade}.
+- Materia: ${extractedSubject}.
 - Cantidad de Preguntas: [ej. 10 preguntas].
-- Marco Teórico: Alinea las preguntas usando la Taxonomía de Bloom.
 
-Instrucciones Estrictas:
-1. Genera [Número] preguntas de Opción Múltiple con Única Respuesta (OMUR). En lugar de preguntas directas ("¿Qué es X?"), usa **Enunciados Contextualizados** (casos, problemas, lectura corta previa) para evaluar la "Competencia" y no solo la memoria.
-2. Genera [Número] preguntas Abiertas de Alto Nivel Cognitivo (Analizar, Evaluar, Crear).
-3. Separa el resultado en dos documentos Markdown: 
-   - El CUADERNILLO DEL ESTUDIANTE.
-   - La GUÍA DEL DOCENTE (con la clave de respuestas, justificación de por qué la respuesta correcta lo es, y una rúbrica cualitativa para las preguntas abiertas).`;
-      break;
-
-    case 'inclusion':
-      adviceList.push('Especifica el tipo de **Necesidad Educativa Especial (NEE)** (TEA, TDAH, Dislexia, Discapacidad Cognitiva).');
-      adviceList.push('Menciona los principios del **DUA (Diseño Universal para el Aprendizaje)**.');
-      adviceList.push('Pide estrategias de **Ajustes Razonables (PIAR)**.');
-      improvedPrompt = `Actúa como un Educador Especial y Experto en Diseño Universal para el Aprendizaje (DUA).
-
-Necesito adaptar un material, clase o evaluación sobre el siguiente tema: "${promptText.trim()}".
-
-Contexto de Inclusión:
-- Perfil del Estudiante: Estudiante de [Edad] diagnosticado con [Condición, ej. TDAH, Trastorno del Espectro Autista nivel 1, Dislexia].
-- Contexto del Aula: [Aula regular con 30 estudiantes].
-
-Instrucciones de Adaptación (PIAR):
-1. **Múltiples formas de Representación**: ¿Cómo presento la información visual, auditiva o kinestésicamente para que el estudiante la comprenda sin frustración?
-2. **Múltiples formas de Expresión**: Proporcióname 3 alternativas diferentes para que el estudiante me demuestre que aprendió, sin obligarlo a usar métodos tradicionales que choquen con su condición.
-3. **Múltiples formas de Implicación**: Sugiere estrategias de motivación y autorregulación emocional específicas para este perfil durante esta actividad.`;
-      break;
-
-    case 'convivencia':
-      adviceList.push('Define claramente la **Tipología de la Falta** (Tipo 1: leves, Tipo 2: agresión, Tipo 3: delito/bullying grave).');
-      adviceList.push('Menciona el uso de la **Ruta de Atención Integral** o manual de convivencia.');
-      adviceList.push('Busca siempre un enfoque **Restaurativo**, no solo punitivo.');
-      improvedPrompt = `Actúa como un Orientador Escolar, Psicólogo Educativo y Experto en Resolución de Conflictos y Convivencia Escolar.
-
-Tengo la siguiente situación en mi institución: "${promptText.trim()}".
-
-Variables del Caso:
-- Edades de los involucrados: [ej. 13 y 14 años].
-- Tipología aproximada: [Falta Leve, Agresión Escolar (Bullying), Falta Grave].
-
-Instrucciones de Actuación:
-1. Propón un protocolo de actuación paso a paso basado en la Ruta de Atención Integral Escolar (Detección, Atención, Seguimiento).
-2. Redacta un guion o enfoque sugerido para la entrevista/mediación con los estudiantes implicados, utilizando técnicas de **Prácticas Restaurativas** y escucha activa.
-3. Redacta los puntos clave que debo comunicarle a los padres de familia sin violar el debido proceso escolar ni generar alarma innecesaria.
-4. Sugiere una actividad preventiva (charla, dinámica de aula) para evitar que esto vuelva a ocurrir en el grupo.`;
+Instrucciones:
+1. Genera [Número] preguntas de Selección Múltiple usando situaciones de la vida real (no preguntas directas de memoria).
+2. Genera [Número] preguntas Abiertas de análisis y reflexión.
+3. Presenta el resultado en DOS documentos:
+   - CUADERNILLO DEL ESTUDIANTE (solo las preguntas).
+   - GUÍA DEL DOCENTE (clave de respuestas + rúbrica para las preguntas abiertas).`;
       break;
 
     case 'rubrica':
-      adviceList.push('Basa tu rúbrica en competencias y **Descriptores Cualitativos**, no solo en números.');
-      adviceList.push('Usa los niveles de desempeño estándar (Bajo, Básico, Alto, Superior).');
-      improvedPrompt = `Actúa como un Auditor de Calidad Educativa. Crea una Rúbrica de Evaluación Analítica en formato de Tabla Markdown para evaluar: "${promptText.trim()}".
+      adviceList.push('📊 Dile cuántas dimensiones quieres evaluar (ej. "evalúa 4 aspectos: contenido, presentación, equipo y creatividad").');
+      adviceList.push('⭐ Pide los niveles de calificación de tu institución (Bajo, Básico, Alto, Superior).');
+      adviceList.push('📋 Solicita que la entregue en formato de tabla para imprimir y usar en clase.');
+      improvedPrompt = `Actúa como un Experto en Evaluación Educativa. Crea una Rúbrica en formato de Tabla para: "${userTopic}".
 
 Variables:
-- Nivel Educativo: [Grado/Edad].
-- Dimensiones a Evaluar: [ej. Competencia Argumentativa, Trabajo en Equipo, Dominio del Tema, Presentación].
-- Niveles de Desempeño: Superior (Excelente), Alto (Sobresaliente), Básico (Suficiente), Bajo (Insuficiente).
+- Nivel Educativo: ${extractedGrade}.
+- Dimensiones a Evaluar: [ej. Contenido, Presentación, Trabajo en Equipo, Creatividad].
+- Niveles de Desempeño: Superior, Alto, Básico, Bajo.
 
 Instrucciones:
-1. Para cada cruce entre Dimensión y Nivel, redacta un **Descriptor Cualitativo** exacto. Evita usar adjetivos subjetivos (como "bueno" o "malo"); en su lugar, describe la evidencia observable (ej. "Argumenta usando 3 fuentes verificables").
-2. Incluye una columna de ponderación porcentual para cada dimensión (sumando 100%).`;
+1. Para cada dimensión y nivel, escribe QUÉ HACE exactamente el estudiante (evidencias observables).
+2. Agrega una columna con el porcentaje de peso de cada dimensión (que sumen 100%).`;
+      break;
+
+    case 'inclusion':
+      adviceList.push('♿ Especifica la condición del estudiante (TDAH, Autismo, Dislexia...) para que la IA ajuste correctamente.');
+      adviceList.push('👁️ Pide materiales visuales y concretos — son los más efectivos para la mayoría de necesidades especiales.');
+      adviceList.push('✅ Solicita alternativas para que el estudiante demuestre que aprendió sin un examen tradicional.');
+      improvedPrompt = `Actúa como un Educador Especial experto en inclusión educativa.
+
+Necesito adaptar el siguiente tema para un estudiante con necesidades especiales: "${userTopic}".
+
+Contexto de Inclusión:
+- Perfil del Estudiante: [Edad] años, diagnosticado con [Condición, ej. TDAH, Autismo nivel 1, Dislexia].
+- Grado: ${extractedGrade}.
+- Contexto del Aula: [Aula regular con aproximadamente 30 estudiantes].
+
+Dame un plan con 3 secciones:
+1. ¿Cómo presento la información? (visual, auditiva o con movimiento).
+2. ¿Cómo puede demostrar que aprendió? (3 alternativas al examen escrito tradicional).
+3. ¿Cómo lo motivo? (estrategias para mantener su atención y confianza durante la clase).`;
+      break;
+
+    case 'convivencia':
+      adviceList.push('⚠️ Describe qué pasó: quiénes están involucrados, cuándo ocurrió y si ya hubo una intervención previa.');
+      adviceList.push('🤝 Pide un enfoque que busque soluciones, no solo castigos.');
+      adviceList.push('👪 Solicita también cómo comunicarle la situación a los padres de manera adecuada.');
+      improvedPrompt = `Actúa como un Orientador Escolar y Experto en Resolución de Conflictos.
+
+Tengo la siguiente situación en mi institución: "${userTopic}".
+
+Variables del Caso:
+- Edades de los involucrados: [ej. 13 y 14 años].
+- Gravedad aproximada: [Conflicto leve / Agresión verbal / Agresión física / Situación de acoso].
+
+Dame un plan de acción con:
+1. Pasos a seguir inmediatamente (antes de llamar a los padres).
+2. Guion de mediación: cómo hablar con los estudiantes usando escucha activa y sin señalar culpables.
+3. Cómo comunicarle la situación a los padres sin generar más conflicto.
+4. Una actividad preventiva para el grupo que evite que esto se repita.`;
+      break;
+
+    case 'reunion':
+      adviceList.push('🕐 ¿Cuánto tiempo tienes para la reunión? Eso define cómo organizar el tiempo.');
+      adviceList.push('🎯 ¿Cuál es el mensaje más importante que quieres que se lleven los asistentes?');
+      adviceList.push('📝 Pide que genere también el ACTA para registrar los acuerdos y compromisos.');
+      improvedPrompt = `Actúa como un Facilitador de Reuniones Educativas. Diseña la agenda y el acta para: "${userTopic}".
+
+Variables:
+- Tipo de Reunión: [ej. Entrega de Boletines / Escuela de Padres / Comité de Área].
+- Tiempo disponible: [ej. 60 minutos].
+- Objetivo principal: [Qué mensaje debe quedar claro al terminar].
+
+Genera:
+1. Agenda Minuto a Minuto con tiempos estrictos (Bienvenida, Tema principal, Preguntas, Compromisos, Cierre).
+2. Guion de apertura para crear un ambiente de colaboración.
+3. Plantilla de Acta con columnas: Acuerdo, Responsable y Fecha límite.`;
       break;
 
     case 'proyecto':
-      adviceList.push('Alinea la actividad con la metodología **ABP (Aprendizaje Basado en Proyectos/Problemas)**.');
-      adviceList.push('Menciona cuál será el **Producto Final** esperado (feria, maqueta, debate, código).');
-      improvedPrompt = `Actúa como un Diseñador Curricular experto en metodologías activas, específicamente Aprendizaje Basado en Proyectos (ABP).
+      adviceList.push('🎯 ¿Cuál es el producto final? (maqueta, presentación, video, experimento, feria...).');
+      adviceList.push('📅 ¿Cuánto tiempo tienen? Sé específico con las semanas o sesiones disponibles.');
+      adviceList.push('📚 ¿Qué materias se pueden conectar? Un buen proyecto integra al menos 2 materias.');
+      improvedPrompt = `Actúa como un Diseñador Curricular experto en Aprendizaje Basado en Proyectos (ABP).
 
-Necesito diseñar un proyecto interdisciplinario basado en: "${promptText.trim()}".
+Necesito diseñar un proyecto para: "${userTopic}".
 
 Variables del Proyecto:
-- Grados involucrados: [Edades o Grados].
-- Materias que se cruzan: [ej. Ciencias, Matemáticas y Lenguaje].
+- Grado: ${extractedGrade}.
+- Materias que se conectan: [ej. Ciencias, Matemáticas y Lenguaje].
 - Duración estimada: [ej. 3 semanas].
+- Producto Final: [Qué construirán los estudiantes, ej. maqueta, video, feria].
 
-Estructura del Proyecto a generar:
-1. **Pregunta Orientadora (Driving Question)**: Un desafío abierto y motivador del mundo real.
-2. **Producto Final Esperado**: Qué construirán o presentarán los estudiantes.
-3. **Cronograma Fase a Fase**: (1. Lanzamiento/Investigación, 2. Desarrollo, 3. Presentación Pública).
-4. **Habilidades del Siglo XXI**: Cómo este proyecto evalúa el pensamiento crítico, comunicación, colaboración o creatividad.`;
+Estructura del Proyecto:
+1. Pregunta Orientadora: Un desafío abierto y motivador del mundo real.
+2. Fases del Proyecto: Investigación → Desarrollo → Presentación Pública.
+3. Cronograma semana a semana.
+4. Cómo evaluar: Rúbrica con criterios de trabajo en equipo, investigación y presentación.`;
       break;
 
     case 'explicacion':
-      adviceList.push('Pide el uso de **Andamiaje Cognitivo (Scaffolding)**.');
-      adviceList.push('Solicita ejemplos vinculados a la **cultura pop o el entorno local** del estudiante.');
-      improvedPrompt = `Actúa como un Profesor y Divulgador Pedagógico excepcional. Tu objetivo es explicar: "${promptText.trim()}".
-
-Instrucciones para la explicación (Andamiaje Cognitivo):
-- Público objetivo: Estudiantes de [Edad], que suelen aburrirse con explicaciones tradicionales.
-- Hook (Enganche): Inicia con un misterio, una paradoja o un dato increíble de la vida real.
-- Conexión Cultural: Usa al menos una metáfora vinculada a [Deportes, Videojuegos, Películas populares, o el entorno de la ciudad del alumno].
-- Desglose Conceptual: Divide la teoría dura en 3 puntos fáciles de masticar (micro-learning).
-- Verificación: Termina con un "Ticket de Salida" (Exit Ticket): una pregunta reflexiva que el alumno debe responder antes de irse.`;
-      break;
-      
-    case 'reunion':
-      adviceList.push('Especifica el objetivo de la reunión (Escuela de padres, Entrega de notas, Comité disciplinario).');
-      adviceList.push('Pide a la IA que estructure una **Agenda con control de tiempos**.');
-      improvedPrompt = `Actúa como un Facilitador de Reuniones y Gestor Escolar. Diseña la agenda y el acta directiva para la siguiente reunión: "${promptText.trim()}".
-
-Variables:
-- Tipo de Reunión: [ej. Entrega de Boletines, Escuela de Padres, Comité de Área].
-- Tiempo disponible: [ej. 60 minutos].
-- Objetivo crítico: [Qué decisión o mensaje debe quedar 100% claro al terminar].
+      adviceList.push('🎣 Pide que empiece con algo que les llame la atención (un misterio o un dato curioso).');
+      adviceList.push('🌍 Pide que use ejemplos de la vida real de los estudiantes (deportes, redes sociales, su ciudad).');
+      adviceList.push('✏️ Al final, pide una pregunta de cierre para verificar si entendieron.');
+      improvedPrompt = `Actúa como un Profesor y Divulgador Pedagógico excepcional. Tu objetivo es explicar: "${userTopic}".
 
 Instrucciones:
-1. Genera una "Agenda Minuto a Minuto" para proyectar en la pantalla, asignando tiempos estrictos a cada bloque (Introducción, Núcleo, Preguntas, Cierre).
-2. Redacta un guion introductorio (Icebreaker) para establecer un tono de colaboración y no de queja.
-3. Diseña una plantilla de "Acta de Reunión" (con Acuerdos, Responsables y Fechas límite) para llenarla durante el evento.`;
+- Público objetivo: Estudiantes de ${extractedGrade} que suelen aburrirse con explicaciones tradicionales.
+- Hook (Enganche): Inicia con un misterio, paradoja o dato increíble de la vida real.
+- Conexión con su mundo: Usa una metáfora o ejemplo vinculado a su vida cotidiana.
+- Desglose: Divide el tema en 3 puntos concretos, del más fácil al más complejo.
+- Verificación: Termina con una pregunta reflexiva que el estudiante responda antes de salir.`;
       break;
 
-    default:
+    case 'tarea_o_guia':
+      adviceList.push(`📚 Grado detectado: "${extractedGrade}". ¿Es correcto? Ajústalo en el prompt.`);
+      adviceList.push('⏱️ ¿Cuánto tiempo tienen los estudiantes para resolver la guía?');
+      adviceList.push('🖨️ Pide que el formato sea imprimible: texto claro, espacios para escribir.');
+      improvedPrompt = `Actúa como un Diseñador de Materiales Educativos. Crea una guía/taller de trabajo sobre: "${userTopic}".
+
+Variables:
+- Grado: ${extractedGrade}.
+- Materia: ${extractedSubject}.
+- Tiempo estimado de resolución: [ej. 30 minutos en clase / Tarea para casa].
+- Modalidad: [Individual / En parejas / En grupos].
+
+Estructura de la guía:
+1. Introducción breve (2-3 líneas sobre el propósito).
+2. Conceptos clave (resumen o mapa de ideas).
+3. Ejercicios guiados (con ejemplo resuelto).
+4. Ejercicios independientes (para que el estudiante los resuelva solo).
+5. Pregunta de reflexión final (¿para qué sirve esto en la vida real?).
+Formato: Apto para imprimir en hoja carta, con espacios para que el estudiante escriba.`;
+      break;
+
+    default: {
       const words = promptText.split(' ').length;
       if (words < 8) {
-        adviceList.push('El prompt es demasiado corto. La IA no tiene contexto suficiente del entorno escolar.');
+        adviceList.push('📝 Tu mensaje es muy corto. Intenta agregar más detalles sobre lo que necesitas.');
       }
-      adviceList.push('Usa la fórmula: [Rol Docente] + [Intención Pedagógica] + [Contexto del salón/estudiantes] + [Modelo Pedagógico].');
-      adviceList.push('Siempre usa [Corchetes] para indicar las variables de tu institución que debes llenar.');
-      
-      improvedPrompt = `Actúa como un [Tu Rol Pedagógico exacto, ej. Orientador, Coordinador Académico, Maestro de Preescolar]. 
+      adviceList.push('👤 Dile a la IA quién eres: "Actúa como si fuera un docente de [materia] en [grado]..."');
+      adviceList.push('🎯 Describe qué quieres: ¿una explicación, un examen, una guía, una carta, un plan de clase?');
+      adviceList.push('👦 Menciona para quién es: grado, edades aproximadas y algo especial del grupo.');
+      improvedPrompt = `Actúa como un Docente Experto en ${extractedSubject}.
 
-Necesito que apliques tu experiencia educativa para desarrollar la siguiente solicitud: "${promptText.trim()}".
+Necesito que me ayudes con lo siguiente: "${userTopic}".
 
-Para garantizar la pertinencia académica, integra este contexto:
-- Edades/Grado escolar de mis estudiantes: [Grado].
-- Objetivo de Aprendizaje / Propósito: [Qué quieres lograr pedagógicamente].
-- Particularidades del grupo: [ej. Son muy visuales, hay problemas de disciplina, es un grupo de excelencia].
+Para que la respuesta sea útil en mi salón, ten en cuenta este contexto:
+- Grado y edades: ${extractedGrade}.
+- Materia: ${extractedSubject}.
+- ¿Qué quiero lograr?: [Describe el objetivo, ej. que los estudiantes entiendan, practiquen o creen algo].
+- Características del grupo: [ej. Son muy activos, tienen dificultades de lectura, es un grupo avanzado].
 
-Entrégame la respuesta estructurada en [Formato deseado: ej. Párrafos, Tabla comparativa, Lista de verificación] y asegúrate de que el tono sea institucional y aplicable de forma realista en el aula escolar de hoy en día.`;
+Entrega la respuesta en formato [Párrafos / Lista numerada / Tabla] con un lenguaje que los estudiantes puedan entender fácilmente.`;
+    }
   }
 
-  const finalAdvice = `Para sacarle el máximo provecho a la Inteligencia Artificial en la educación, debes ser un "Ingeniero de Prompts Educativos". Al tuyo le faltan estos detalles críticos:\n\n- ${adviceList.join('\n- ')}`;
+  const intentLabels = {
+    comunicacion: 'Redacción de Comunicado Oficial',
+    planeacion: 'Plan de Clase / Secuencia Didáctica',
+    examen: 'Diseño de Evaluación / Prueba',
+    rubrica: 'Rúbrica de Evaluación',
+    inclusion: 'Estrategia de Inclusión Educativa',
+    convivencia: 'Manejo de Convivencia / Conflicto',
+    reunion: 'Organización de Reunión Escolar',
+    proyecto: 'Diseño de Proyecto Pedagógico (ABP)',
+    explicacion: 'Explicación Pedagógica de Concepto',
+    tarea_o_guia: 'Guía / Taller de Trabajo',
+    general: 'Solicitud General Educativa'
+  };
+
+  const finalAdvice = `Aquí tienes 3 consejos para que tu prompt funcione aún mejor:\n\n${adviceList.map((a, i) => `${i + 1}. ${a}`).join('\n')}`;
 
   try {
     await prisma.promptLog.create({
@@ -371,7 +412,12 @@ Entrégame la respuesta estructurada en [Formato deseado: ej. Párrafos, Tabla c
     console.error("Error guardando el log del prompt:", err);
   }
 
-  res.json({ advice: finalAdvice, improvedPrompt });
+  res.json({
+    advice: finalAdvice,
+    improvedPrompt,
+    detectedIntent: intent,
+    detectedIntentLabel: intentLabels[intent] || 'Solicitud General'
+  });
 });
 
 // Admin/System route to toggle payment (for testing)
